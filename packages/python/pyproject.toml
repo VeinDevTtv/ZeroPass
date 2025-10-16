@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "commonpasswords"
+version = "0.1.0"
+description = "CommonPasswords dataset and checker"
+authors = [{name = "CommonPass", email = "abdelkarim.contact1@gmail.com"}]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+

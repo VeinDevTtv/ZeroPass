@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: corepack enable
+      - run: pnpm -C packages/javascript install && pnpm -C packages/javascript build
+      - run: pip install -e packages/python && pytest packages/python -q
+      - run: bash release/release.sh ${GITHUB_REF_NAME} vYYYYMMDD.1
+
+

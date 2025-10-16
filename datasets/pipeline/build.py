@@ -6,14 +6,14 @@ import io
 import json
 import os
 import sys
-import unicodedata
 from collections import Counter
 from datetime import datetime, timezone
+from .bloom import Bloom, optimal_bloom_params
+from .utils import normalize
+from .metadata import iso_now
 
 
-def normalize(s: str) -> str:
-    # NFC + trim; do not drop characters silently
-    return unicodedata.normalize("NFC", s).strip()
+ # normalization imported from utils
 
 
 def load_sources(paths):
@@ -143,7 +143,7 @@ def write_bloom(path, entries, expected_n, fpr, version, tier, locale="global"):
         "version": version,
         "tier": tier,
         "locale": locale,
-        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "created_at": iso_now(),
     })
     with open(path, "wb") as f:
         f.write(blob)

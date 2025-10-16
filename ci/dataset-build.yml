@@ -14,7 +14,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python datasets/pipeline/build.py --version v20250101.1 --sources datasets/raw/*.txt --out datasets
+      - run: python datasets/pipeline/build.py --version 20250101.1 --sources datasets/raw/*.txt --out datasets
       - run: |
           echo "Generated files:" && ls -la datasets/v20250101.1 || true
 

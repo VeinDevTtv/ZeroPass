@@ -1,7 +1,10 @@
 import os
 import subprocess
 
-import commonpasswords as cp
+try:
+    import commonpass as cp
+except Exception:  # fallback if editable install still uses old name locally
+    import commonpasswords as cp
 
 
 def test_initialize_and_check(tmp_path):

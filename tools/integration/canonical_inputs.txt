@@ -1,0 +1,5 @@
+SAMPLE_password
+SAMPLE_123456
+SAMPLE_qwerty
+SAMPLE_dragon
+not_in_list_example

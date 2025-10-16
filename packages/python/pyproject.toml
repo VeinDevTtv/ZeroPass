@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "commonpasswords"
+name = "commonpass"
 version = "0.1.0"
 description = "CommonPasswords dataset and checker"
 authors = [{name = "CommonPass", email = "abdelkarim.contact1@gmail.com"}]

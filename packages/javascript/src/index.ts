@@ -6,6 +6,7 @@ type InitOptions = {
   load_mode?: 'inline' | 'stream' | 'remote';
   bfPath?: string; // for Node inline mode
   version?: string;
+  locale?: string;
 };
 
 export type CheckResult = { common: boolean; reason?: string; version?: string };
@@ -28,8 +29,9 @@ function parseBloom(buffer: Uint8Array) {
 function* hashes(s: string, bitSize: number, hashCount: number): Generator<number> {
   const enc = new TextEncoder();
   const b = enc.encode(s);
-  const h1 = BigInt.asUintN(64, BigInt('0x' + require('crypto').createHash('sha256').update(b).digest('hex').slice(0,16)));
-  const h2 = BigInt.asUintN(64, BigInt('0x' + require('crypto').createHash('blake2b512').update(b).digest('hex').slice(0,16)));
+  const crypto = require('crypto');
+  const h1 = BigInt('0x' + crypto.createHash('sha256').update(Buffer.concat([b, new Uint8Array([0])])).digest('hex'));
+  const h2 = BigInt('0x' + crypto.createHash('sha256').update(Buffer.concat([b, new Uint8Array([1])])).digest('hex'));
   const m = BigInt(bitSize);
   for (let i = 0; i < hashCount; i++) {
     const v = (h1 + BigInt(i) * h2) % m;
@@ -48,8 +50,10 @@ class Bloom {
   }
   has(s: string): boolean {
     for (const idx of hashes(s, this.bitSize, this.hashCount)) {
-      const byte = this.bits[Math.floor(idx / 8)];
-      const mask = 1 << (idx % 8);
+      const byteIndex = Math.floor(idx / 8);
+      const bitIndex = 7 - (idx % 8); // big-endian bit layout
+      const byte = this.bits[byteIndex];
+      const mask = 1 << bitIndex;
       if ((byte & mask) === 0) return false;
     }
     return true;
@@ -61,7 +65,7 @@ let datasetVersion: string | undefined;
 
 export function initialize(options: InitOptions = {}) {
   const tier = options.tier ?? 'tiny';
-  const version = options.version ?? 'vYYYYMMDD.1';
+  const version = options.version ?? 'YYYYMMDD.1';
   const bfPath = options.bfPath ?? `datasets/${version}/common_${tier}.bf`;
   const buf = readFileSync(bfPath);
   const { header, bits } = parseBloom(new Uint8Array(buf));

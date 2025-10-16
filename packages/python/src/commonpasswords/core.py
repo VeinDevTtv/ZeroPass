@@ -23,15 +23,15 @@ def _hashes(s: str, bit_size: int, hash_count: int):
     import hashlib
 
     b = s.encode("utf-8")
-    h1 = int.from_bytes(hashlib.sha256(b).digest()[:8], "big")
-    h2 = int.from_bytes(hashlib.blake2b(b, digest_size=8).digest(), "big")
+    h1 = int.from_bytes(hashlib.sha256(b + b"\x00").digest(), "big")
+    h2 = int.from_bytes(hashlib.sha256(b + b"\x01").digest(), "big")
     for i in range(hash_count):
         yield (h1 + i * h2) % bit_size
 
 
 def initialize(tier: str = "tiny", version: Optional[str] = None, bf_path: Optional[str] = None):
     global _BLOOM, _DATASET_VERSION
-    ver = version or "vYYYYMMDD.1"
+    ver = version or "YYYYMMDD.1"
     path = bf_path or f"datasets/{ver}/common_{tier}.bf"
     with open(path, "rb") as f:
         header, bits = _parse_bloom(f.read())
@@ -44,8 +44,10 @@ def is_common(password: str) -> Dict[str, Any]:
         return {"common": False}
     s = _normalize(password)
     for idx in _hashes(s, _BLOOM["bit_size"], _BLOOM["hash_count"]):
-        byte = _BLOOM["bits"][idx // 8]
-        mask = 1 << (idx % 8)
+        byte_index = idx // 8
+        bit_index = 7 - (idx % 8)  # big-endian bit layout
+        byte = _BLOOM["bits"][byte_index]
+        mask = 1 << bit_index
         if (byte & mask) == 0:
             return {"common": False}
     return {"common": True, "reason": "bloom-match", "version": _DATASET_VERSION}

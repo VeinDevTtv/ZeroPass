@@ -70,14 +70,14 @@ def write_txt(path, entries):
     return compute_sha256_bytes(data), len(data)
 
 
-def write_json_gz(path, version, tier, entries, bloom_sha, bloom_params):
+def write_json_gz(path, version, tier, entries, sha_map, bloom_params):
     payload = {
         "meta": {
-            "version": version,
+            "dataset_version": version,
             "tier": tier,
             "count": len(entries),
             "bloom_params": bloom_params,
-            "sha256_bf": bloom_sha,
+            "sha256": sha_map,
         },
         "data": entries,
     }
@@ -89,7 +89,7 @@ def write_json_gz(path, version, tier, entries, bloom_sha, bloom_params):
 
 
 class Bloom:
-    # Simple portable Bloom filter with double hashing
+    # Portable Bloom filter with SHA-256 double-hash and big-endian bit layout
     def __init__(self, bit_size: int, hash_count: int):
         self.bit_size = bit_size
         self.hash_count = hash_count
@@ -97,20 +97,23 @@ class Bloom:
 
     def _hashes(self, s: str):
         b = s.encode("utf-8")
-        h1 = int.from_bytes(hashlib.sha256(b).digest()[:8], "big")
-        h2 = int.from_bytes(hashlib.blake2b(b, digest_size=8).digest(), "big")
+        h1 = int.from_bytes(hashlib.sha256(b + b"\x00").digest(), "big")
+        h2 = int.from_bytes(hashlib.sha256(b + b"\x01").digest(), "big")
         for i in range(self.hash_count):
             yield (h1 + i * h2) % self.bit_size
 
     def add(self, s: str):
         for idx in self._hashes(s):
-            self.bits[idx // 8] |= (1 << (idx % 8))
+            byte_index = idx // 8
+            bit_index = 7 - (idx % 8)  # big-endian bit layout
+            self.bits[byte_index] |= (1 << bit_index)
 
     def serialize(self, params_meta: dict) -> bytes:
         header = {
             "format": "commonpass-bloom-v1",
             "bit_size": self.bit_size,
             "hash_count": self.hash_count,
+            "hash_algo": "sha256",
             **params_meta,
         }
         header_bytes = (json.dumps(header, separators=(",", ":")) + "\n").encode("utf-8")
@@ -129,12 +132,19 @@ def optimal_bloom_params(n: int, fpr: float):
     return max(8 * 1024, m), k
 
 
-def write_bloom(path, entries, expected_n, fpr, version, tier):
+def write_bloom(path, entries, expected_n, fpr, version, tier, locale="global"):
     bit_size, hash_count = optimal_bloom_params(expected_n, fpr)
     bloom = Bloom(bit_size, hash_count)
     for pw in entries:
         bloom.add(pw)
-    blob = bloom.serialize({"expected_n": expected_n, "fpr": fpr, "version": version, "tier": tier})
+    blob = bloom.serialize({
+        "expected_n": expected_n,
+        "fpr": fpr,
+        "version": version,
+        "tier": tier,
+        "locale": locale,
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
     with open(path, "wb") as f:
         f.write(blob)
     return compute_sha256_bytes(blob), len(blob), {"expected_n": expected_n, "fpr": fpr, "hash_count": hash_count, "bit_size": bit_size}
@@ -146,13 +156,13 @@ def ensure_dir(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--version", required=False, help="dataset version like vYYYYMMDD.1")
+    ap.add_argument("--version", required=False, help="dataset version like YYYYMMDD.1")
     ap.add_argument("--sources", nargs="+", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--fpr", type=float, default=0.01)
     args = ap.parse_args()
 
-    version = args.version or ("v" + datetime.now(timezone.utc).strftime("%Y%m%d") + ".1")
+    version = args.version or (datetime.now(timezone.utc).strftime("%Y%m%d") + ".1")
     counts, sources = load_sources(args.sources)
     items = deterministic_sorted_items(counts)
     tiers = split_tiers(items)
@@ -161,12 +171,13 @@ def main():
     ensure_dir(out_dir)
 
     meta = {
-        "version": version,
+        "dataset_version": version,
+        "code_version": "v0.1.0",
         "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "sources": sources,
         "counts": {k: len(v) for k, v in tiers.items()},
-        "files": [],
         "bloom": {},
+        "sha256": {},
     }
 
     for tier, entries in tiers.items():
@@ -176,20 +187,21 @@ def main():
 
         sha_txt, size_txt = write_txt(txt_path, entries)
         sha_bf, size_bf, bloom_params = write_bloom(bf_path, entries, expected_n=max(1, len(entries)), fpr=args.fpr, version=version, tier=tier)
-        sha_json, size_json = write_json_gz(json_path, version, tier, entries, sha_bf, bloom_params)
+        sha_json, size_json = write_json_gz(json_path, version, tier, entries, {
+            f"common_{tier}.txt": sha_txt,
+            f"common_{tier}.bf": sha_bf,
+        }, bloom_params)
 
-        meta["files"].extend([
-            {"name": f"common_{tier}.txt", "sha256": sha_txt, "size": size_txt},
-            {"name": f"common_{tier}.bf", "sha256": sha_bf, "size": size_bf},
-            {"name": f"common_{tier}.json.gz", "sha256": sha_json, "size": size_json},
-        ])
+        meta["sha256"][f"common_{tier}.txt"] = sha_txt
+        meta["sha256"][f"common_{tier}.bf"] = sha_bf
+        meta["sha256"][f"common_{tier}.json.gz"] = sha_json
         if tier == "tiny":
             meta["bloom"] = bloom_params
 
     with open(os.path.join(out_dir, "metadata.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
-    print(json.dumps({"version": version, "out": out_dir, "counts": meta["counts"]}))
+    print(json.dumps({"dataset_version": version, "out": out_dir, "counts": meta["counts"]}))
 
 
 if __name__ == "__main__":
